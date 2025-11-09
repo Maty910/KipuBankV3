@@ -1,0 +1,13 @@
+# Foundry
+cache/
+out/
+broadcast/
+
+# Dotenv
+.env
+
+# VSCode
+.vscode/
+
+# Logs
+*.log
