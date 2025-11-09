@@ -2,12 +2,13 @@
 cache/
 out/
 broadcast/
+lib/
 
 # Dotenv
 .env
 
-# VSCode
-.vscode/
+# Node
+node_modules/
 
-# Logs
-*.log
+# Backups
+*.bak
