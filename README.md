@@ -1,7 +1,67 @@
-ENTREGA PROYECTO FINAL - KipuBankV3
+# ENTREGA PROYECTO FINAL - KipuBankV3
 
 Repositorio: https://github.com/Maty910/KipuBankV3
 
+##Descripción general
+
+KipuBankV3 es una evolución de versiones anteriores del contrato KipuBank.
+Esta versión mejora la seguridad, escalabilidad y flexibilidad del sistema.
+Las principales mejoras incluyen:
+
+Soporte para múltiples tokens ERC20.
+
+Conversión automática a USDC al depositar, respetando límites en USD.
+
+Control de acceso más claro (roles y ownership).
+
+Lógica de seguridad reforzada (reentrancy guard, pausabilidad).
+
+Tests ampliados con Foundry.
+
+El objetivo es lograr un contrato más robusto y adaptable, manteniendo las buenas prácticas de desarrollo seguro en Solidity.
+
+## Despliegue e interacción
+Requisitos
+
+Foundry instalado.
+
+RPC de red (por ejemplo, Sepolia o testnet elegida).
+
+Clave privada con fondos de gas.
+
+Pasos
+git clone https://github.com/Maty910/KipuBankV3.git
+cd KipuBankV3
+forge build
+forge test
+forge script script/DeployKipuBankV3.s.sol --rpc-url <RPC_URL> --private-key <PRIVATE_KEY> --broadcast
+
+
+Una vez desplegado, verificar el contrato en Etherscan/Blockscout y copiar la URL de verificación.
+
+## Decisiones de diseño
+
+Se priorizó la seguridad y claridad del código sobre micro-optimizaciones de gas.
+
+El uso de USDC como token de reserva simplifica la gestión del valor.
+
+Se implementó pausabilidad para responder ante incidentes.
+
+Se mantuvo un solo owner/admin para reducir complejidad (futuro: multisig).
+
+## Análisis de amenazas
+
+Debilidades detectadas:
+
+Riesgo de reentrancy si se amplían funciones sin cuidado.
+
+Dependencia de oráculos para la conversión a USDC.
+
+Rol del admin centralizado.
+
+
+Cobertura de pruebas: ~80 % (principalmente depósitos, retiros y pausabilidad).
+Método: forge test con escenarios positivos y negativos.
 Contratos implementados:
 - src/KipuBankV3.sol (Integración Uniswap V2)
 - src/KipuBankV2Corrected.sol (Correcciones del profesor aplicadas)
