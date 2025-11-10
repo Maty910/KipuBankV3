@@ -2,7 +2,7 @@
 
 Repositorio: https://github.com/Maty910/KipuBankV3
 
-##Descripción general
+## Descripción general
 
 KipuBankV3 es una evolución de versiones anteriores del contrato KipuBank.
 Esta versión mejora la seguridad, escalabilidad y flexibilidad del sistema.
