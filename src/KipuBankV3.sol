@@ -1,221 +1,315 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.20;
+pragma solidity ^0.8.20;
 
-/**
- * @title KipuBankV3
- * @author Matías Chacón
- * @notice Versión avanzada de KipuBank que permite depositar cualquier token soportado por Uniswap V2,
- *         convierte automáticamente los tokens a USDC, y respeta el límite del banco en USD.
- * @dev Mantiene toda la lógica de seguridad, roles, y CEI de KipuBankV2Corrected.
- */
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-import {KipuBankV2Corrected} from "./KipuBankV2Corrected.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
+/// @title KipuBankV3
+/// @author Tu Nombre
+/// @notice Banco DeFi que acepta múltiples tokens y los convierte a USDC usando Uniswap V2
+/// @dev Integra con Uniswap V2 Router para intercambios automáticos de tokens
+contract KipuBankV3 is ReentrancyGuard {
+    using SafeERC20 for IERC20;
 
-contract KipuBankV3 is KipuBankV2Corrected {
-  using SafeERC20 for IERC20;
+    // ============ State Variables ============
+    
+    /// @notice Dirección del propietario del contrato
+    address public owner;
+    
+    /// @notice Token USDC utilizado como moneda base del banco
+    IERC20 public immutable usdc;
+    
+    /// @notice Límite máximo total que puede almacenar el banco en USDC
+    uint256 public bankCap;
+    
+    /// @notice Router de Uniswap V2 para realizar swaps
+    address public immutable uniswapRouter;
+    
+    /// @notice Dirección del token WETH (Wrapped Ether)
+    address public immutable weth;
+    
+    /// @notice Tolerancia de slippage en basis points (100 = 1%)
+    uint256 public slippageTolerance;
+    
+    /// @notice Tiempo límite para transacciones en segundos
+    uint256 public deadline;
+    
+    /// @notice Balance en USDC de cada usuario
+    mapping(address => uint256) public balances;
+    
+    /// @notice Balance total del banco en USDC
+    uint256 public totalBalance;
 
-  // -----------------
-  // VARIABLES NUEVAS
-  // -----------------
-
-  /// @notice Token USDC (utilizado como referencia del valor total)
-  IERC20 public immutable USDC;
-
-  /// @notice Router de Uniswap V2 para swaps
-  IUniswapV2Router02 public immutable UNISWAP_ROUTER;
-
-  /// @notice Dirección del token WETH usado por Uniswap
-  address public immutable WETH;
-
-  /// @notice Saldo de cada usuario expresado en USDC (unidad nativa del token)
-  mapping(address => uint256) public usdcBalances;
-
-  // -----------------
-  // CONSTRUCTOR
-  // -----------------
-
-  /**
-   * @param _bankCap Límite global del banco (USD con 8 decimales)
-   * @param _withdrawLimit Límite máximo de retiro en ETH (wei)
-   * @param admin Dirección del admin principal (AccessControl)
-   * @param _priceFeed Dirección del feed de Chainlink ETH/USD
-   * @param _uniswapRouter Dirección del router de Uniswap V2
-   * @param _usdc Dirección del token USDC
-   * @param _weth Dirección del token WETH
-   */
-  constructor(
-    uint256 _bankCap,
-    uint256 _withdrawLimit,
-    address admin,
-    address _priceFeed,
-    address _uniswapRouter,
-    address _usdc,
-    address _weth
-  ) KipuBankV2Corrected(_bankCap, _withdrawLimit, admin, _priceFeed) {
-    require(_uniswapRouter != address(0), "Invalid router");
-    require(_usdc != address(0), "Invalid USDC");
-    require(_weth != address(0), "Invalid WETH");
-
-    UNISWAP_ROUTER = IUniswapV2Router02(_uniswapRouter);
-    USDC = IERC20(_usdc);
-    WETH = _weth;
-  }
-
-  // -----------------
-  // DEPÓSITOS
-  // -----------------
-
-  /**
-   * @notice Permite depositar cualquier token soportado por Uniswap.
-   * @dev Si el token no es USDC ni ETH, se intercambia automáticamente a USDC.
-   *      Antes de acreditar, se verifica que el nuevo total (normalizado a 8 decimales)
-   *      no supere el bankCap.
-   * @param token Dirección del token a depositar (usar address(0) para ETH)
-   * @param amount Cantidad a depositar (para ETH, pasar 0 y enviar value)
-   */
-  function depositAny(address token, uint256 amount)
-    external
-    payable
-    nonReentrant
-  {
-    uint256 usdcReceived;
-
-    if (token == address(0)) {
-      // Depósito en ETH
-      require(msg.value > 0, "No ETH sent");
-      usdcReceived = _swapEthToUsdc(msg.value);
-    } else if (token == address(USDC)) {
-      // Depósito directo en USDC
-      IERC20(USDC).safeTransferFrom(msg.sender, address(this), amount);
-      usdcReceived = amount;
-    } else {
-      // Depósito de otro token ERC20 soportado
-      IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
-      // Aprobación para router
-      IERC20(token).safeIncreaseAllowance(address(UNISWAP_ROUTER), amount);
-      usdcReceived = _swapTokenToUsdc(token, amount);
-    }
-
-    // Normalizar saldos a 8 decimales para comparar con bankCap (bankCap usa 8 decimales)
-    uint256 currentUsdcNorm = _to8Decimals(address(USDC), USDC.balanceOf(address(this)));
-    uint256 receivedNorm = _to8Decimals(address(USDC), usdcReceived);
-    uint256 newTotalNorm = currentUsdcNorm + receivedNorm;
-
-    if (newTotalNorm > bankCap) revert ExceedsBankCap(newTotalNorm, bankCap);
-
-    // Acreditar en USDC (unidad nativa de USDC)
-    usdcBalances[msg.sender] += usdcReceived;
-    emit Deposit(msg.sender, token, usdcReceived);
-  }
-
-  // -----------------
-  // RETIROS
-  // -----------------
-
-  /**
-   * @notice Permite retirar el balance en USDC.
-   * @param amount Cantidad de USDC a retirar
-   */
-  function withdrawUsdc(uint256 amount) external nonReentrant {
-    if (amount == 0) revert ZeroWithdrawal();
-    uint256 bal = usdcBalances[msg.sender];
-    if (bal < amount) revert InsufficientBalance(bal, amount);
-
-    usdcBalances[msg.sender] = bal - amount;
-    USDC.safeTransfer(msg.sender, amount);
-
-    emit Withdrawal(msg.sender, address(USDC), amount);
-  }
-
-  // -----------------
-  // FUNCIONES INTERNAS DE SWAP
-  // -----------------
-
-  /// @dev Swapea ETH -> USDC via UniswapV2 (devuelve cantidad de USDC recibida, en decimals de USDC)
-  function _swapEthToUsdc(uint256 amountIn) private returns (uint256) {
-    address[] memory path = new address[](2);
-    path[0] = WETH;
-    path[1] = address(USDC);
-
-    uint256[] memory amounts = UNISWAP_ROUTER.swapExactETHForTokens{value: amountIn}(
-      0, // amountOutMin = 0 (en tests). En producción, usar slippage razonable.
-      path,
-      address(this),
-      block.timestamp
+    // ============ Events ============
+    
+    /// @notice Se emite cuando un usuario deposita tokens
+    /// @param user Dirección del usuario
+    /// @param token Dirección del token depositado
+    /// @param amountDeposited Cantidad depositada del token original
+    /// @param usdcCredited Cantidad acreditada en USDC
+    event Deposit(
+        address indexed user,
+        address indexed token,
+        uint256 amountDeposited,
+        uint256 usdcCredited
     );
+    
+    /// @notice Se emite cuando un usuario retira USDC
+    /// @param user Dirección del usuario
+    /// @param amount Cantidad retirada en USDC
+    event Withdrawal(address indexed user, uint256 amount);
+    
+    /// @notice Se emite cuando se actualiza el bank cap
+    /// @param newCap Nuevo límite del banco
+    event BankCapUpdated(uint256 newCap);
+    
+    /// @notice Se emite cuando cambia el propietario
+    /// @param newOwner Nueva dirección del propietario
+    event OwnershipTransferred(address indexed newOwner);
 
-    return amounts[amounts.length - 1];
-  }
+    // ============ Errors ============
+    
+    error OnlyOwner();
+    error BankCapExceeded();
+    error InsufficientBalance();
+    error InvalidAmount();
+    error InvalidAddress();
+    error SwapFailed();
+    error TransferFailed();
 
-  /// @dev Swapea tokenIn -> USDC via UniswapV2 (usa route token -> WETH -> USDC si es necesario)
-  function _swapTokenToUsdc(address tokenIn, uint256 amountIn)
-    private
-    returns (uint256)
-  {
-    // Si tokenIn == WETH hacemos ruta WETH -> USDC (2 pasos)
-    if (tokenIn == WETH) {
-      address[] memory pathWeth = new address[](2);
-      pathWeth[0] = WETH;
-      pathWeth[1] = address(USDC);
-
-      uint256[] memory amountsWeth = UNISWAP_ROUTER.swapExactTokensForTokens(
-        amountIn,
-        0,
-        pathWeth,
-        address(this),
-        block.timestamp
-      );
-
-      return amountsWeth[amountsWeth.length - 1];
+    // ============ Modifiers ============
+    
+    /// @notice Restringe función solo al propietario
+    modifier onlyOwner() {
+        if (msg.sender != owner) revert OnlyOwner();
+        _;
     }
 
-    // Ruta token -> WETH -> USDC
-    address[] memory pathToken = new address[](3);
-    pathToken[0] = tokenIn;
-    pathToken[1] = WETH;
-    pathToken[2] = address(USDC);
-
-    uint256[] memory amountsToken = UNISWAP_ROUTER.swapExactTokensForTokens(
-      amountIn,
-      0,
-      pathToken,
-      address(this),
-      block.timestamp
-    );
-
-    return amountsToken[amountsToken.length - 1];
-  }
-
-  // -----------------
-  // HELPERS
-  // -----------------
-
-  /// @dev Convierte una cantidad de token (decimales arbitrarios) a la representación con 8 decimales.
-  ///      Usa IERC20Metadata.decimals(). Si el token no implementa decimals(), asume 18.
-  function _to8Decimals(address token, uint256 amount) private view returns (uint256) {
-    uint8 d;
-    // Intentamos leer decimals; si la llamada falla reverts, esto asumirá 18 — la mayoría de tokens sí lo implementan.
-    try IERC20Metadata(token).decimals() returns (uint8 dec) {
-      d = dec;
-    } catch {
-      d = 18;
+    // ============ Constructor ============
+    
+    /// @notice Inicializa el contrato KipuBankV3
+    /// @param _owner Dirección del propietario inicial
+    /// @param _usdc Dirección del token USDC
+    /// @param _bankCap Límite máximo del banco en USDC
+    /// @param _uniswapRouter Dirección del router de Uniswap V2
+    /// @param _weth Dirección del token WETH
+    /// @param _slippageTolerance Tolerancia de slippage (en basis points, ej: 100 = 1%)
+    /// @param _deadline Tiempo límite para transacciones en segundos
+    constructor(
+        address _owner,
+        address _usdc,
+        uint256 _bankCap,
+        address _uniswapRouter,
+        address _weth,
+        uint256 _slippageTolerance,
+        uint256 _deadline
+    ) {
+        if (_owner == address(0) || _usdc == address(0) || _uniswapRouter == address(0) || _weth == address(0)) {
+            revert InvalidAddress();
+        }
+        
+        owner = _owner;
+        usdc = IERC20(_usdc);
+        bankCap = _bankCap;
+        uniswapRouter = _uniswapRouter;
+        weth = _weth;
+        slippageTolerance = _slippageTolerance;
+        deadline = _deadline;
     }
 
-    if (d == 8) return amount;
-    else if (d > 8) return amount / (10 ** (d - 8));
-    else return amount * (10 ** (8 - d));
-  }
+    // ============ External Functions ============
+    
+    /// @notice Deposita ETH nativo, lo convierte a USDC y acredita al usuario
+    /// @dev Utiliza Uniswap V2 para intercambiar ETH por USDC
+    function depositNative() external payable nonReentrant {
+        if (msg.value == 0) revert InvalidAmount();
+        
+        // Swap ETH -> USDC usando Uniswap V2
+        uint256 usdcReceived = _swapNativeForUSDC(msg.value);
+        
+        // Verificar bank cap
+        if (totalBalance + usdcReceived > bankCap) revert BankCapExceeded();
+        
+        // Actualizar balances
+        balances[msg.sender] += usdcReceived;
+        totalBalance += usdcReceived;
+        
+        emit Deposit(msg.sender, address(0), msg.value, usdcReceived);
+    }
+    
+    /// @notice Deposita un token ERC20, lo convierte a USDC si es necesario
+    /// @param token Dirección del token a depositar
+    /// @param amount Cantidad del token a depositar
+    function depositToken(address token, uint256 amount) external nonReentrant {
+        if (amount == 0) revert InvalidAmount();
+        if (token == address(0)) revert InvalidAddress();
+        
+        // Transferir tokens del usuario al contrato
+        IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
+        
+        uint256 usdcReceived;
+        
+        // Si el token es USDC, acreditar directamente
+        if (token == address(usdc)) {
+            usdcReceived = amount;
+        } else {
+            // Si es otro token, intercambiar por USDC
+            usdcReceived = _swapTokenForUSDC(token, amount);
+        }
+        
+        // Verificar bank cap
+        if (totalBalance + usdcReceived > bankCap) revert BankCapExceeded();
+        
+        // Actualizar balances
+        balances[msg.sender] += usdcReceived;
+        totalBalance += usdcReceived;
+        
+        emit Deposit(msg.sender, token, amount, usdcReceived);
+    }
+    
+    /// @notice Retira USDC del balance del usuario
+    /// @param amount Cantidad de USDC a retirar
+    function withdraw(uint256 amount) external nonReentrant {
+        if (amount == 0) revert InvalidAmount();
+        if (balances[msg.sender] < amount) revert InsufficientBalance();
+        
+        // Actualizar balances
+        balances[msg.sender] -= amount;
+        totalBalance -= amount;
+        
+        // Transferir USDC al usuario
+        usdc.safeTransfer(msg.sender, amount);
+        
+        emit Withdrawal(msg.sender, amount);
+    }
+    
+    /// @notice Consulta el balance en USDC de un usuario
+    /// @param user Dirección del usuario
+    /// @return Balance en USDC del usuario
+    function balanceOf(address user) external view returns (uint256) {
+        return balances[user];
+    }
+    
+    /// @notice Actualiza el límite máximo del banco
+    /// @param newCap Nuevo bank cap
+    function setBankCap(uint256 newCap) external onlyOwner {
+        bankCap = newCap;
+        emit BankCapUpdated(newCap);
+    }
+    
+    /// @notice Transfiere la propiedad del contrato
+    /// @param newOwner Nueva dirección del propietario
+    function transferOwnership(address newOwner) external onlyOwner {
+        if (newOwner == address(0)) revert InvalidAddress();
+        owner = newOwner;
+        emit OwnershipTransferred(newOwner);
+    }
 
-  // -----------------
-  // VIEWS ADICIONALES
-  // -----------------
-
-  /// @notice Total de USDC que posee el contrato (unidad nativa de USDC, p.ej. 6 decimales)
-  function getTotalUsdc() public view returns (uint256) {
-    return USDC.balanceOf(address(this));
-  }
+    // ============ Internal Functions ============
+    
+    /// @notice Intercambia ETH por USDC usando Uniswap V2
+    /// @param amountIn Cantidad de ETH a intercambiar
+    /// @return Cantidad de USDC recibida
+    function _swapNativeForUSDC(uint256 amountIn) internal returns (uint256) {
+        // Preparar el path: ETH -> WETH -> USDC
+        address[] memory path = new address[](2);
+        path[0] = weth;
+        path[1] = address(usdc);
+        
+        // Calcular mínimo de salida considerando slippage
+        uint256 minAmountOut = _getMinAmountOut(amountIn, path);
+        
+        // Realizar el swap
+        // swapExactETHForTokens(uint amountOutMin, address[] calldata path, address to, uint deadline)
+        (bool success, bytes memory data) = uniswapRouter.call{value: amountIn}(
+            abi.encodeWithSignature(
+                "swapExactETHForTokens(uint256,address[],address,uint256)",
+                minAmountOut,
+                path,
+                address(this),
+                block.timestamp + deadline
+            )
+        );
+        
+        if (!success) revert SwapFailed();
+        
+        // Decodificar la respuesta (array de amounts)
+        uint256[] memory amounts = abi.decode(data, (uint256[]));
+        return amounts[amounts.length - 1];
+    }
+    
+    /// @notice Intercambia un token ERC20 por USDC usando Uniswap V2
+    /// @param token Dirección del token a intercambiar
+    /// @param amountIn Cantidad del token a intercambiar
+    /// @return Cantidad de USDC recibida
+    function _swapTokenForUSDC(address token, uint256 amountIn) internal returns (uint256) {
+        // Aprobar el router para gastar los tokens
+        IERC20(token).safeIncreaseAllowance(uniswapRouter, amountIn);
+        
+        // Preparar el path: Token -> USDC (o Token -> WETH -> USDC si no hay par directo)
+        address[] memory path = _getSwapPath(token);
+        
+        // Calcular mínimo de salida considerando slippage
+        uint256 minAmountOut = _getMinAmountOut(amountIn, path);
+        
+        // Realizar el swap
+        // swapExactTokensForTokens(uint amountIn, uint amountOutMin, address[] calldata path, address to, uint deadline)
+        (bool success, bytes memory data) = uniswapRouter.call(
+            abi.encodeWithSignature(
+                "swapExactTokensForTokens(uint256,uint256,address[],address,uint256)",
+                amountIn,
+                minAmountOut,
+                path,
+                address(this),
+                block.timestamp + deadline
+            )
+        );
+        
+        if (!success) revert SwapFailed();
+        
+        // Decodificar la respuesta (array de amounts)
+        uint256[] memory amounts = abi.decode(data, (uint256[]));
+        return amounts[amounts.length - 1];
+    }
+    
+    /// @notice Determina el mejor path para el swap
+    /// @param token Token de entrada
+    /// @return path Array con la ruta del swap
+    function _getSwapPath(address token) internal view returns (address[] memory) {
+        // Intentar path directo: Token -> USDC
+        address[] memory directPath = new address[](2);
+        directPath[0] = token;
+        directPath[1] = address(usdc);
+        
+        // Por simplicidad, siempre usar path directo
+        // En producción, se debería verificar si existe el par
+        return directPath;
+    }
+    
+    /// @notice Calcula el mínimo de salida considerando slippage
+    /// @param amountIn Cantidad de entrada
+    /// @param path Ruta del swap
+    /// @return Cantidad mínima de salida
+    function _getMinAmountOut(uint256 amountIn, address[] memory path) internal view returns (uint256) {
+        // Obtener amounts esperados del router
+        (bool success, bytes memory data) = uniswapRouter.staticcall(
+            abi.encodeWithSignature(
+                "getAmountsOut(uint256,address[])",
+                amountIn,
+                path
+            )
+        );
+        
+        if (!success) revert SwapFailed();
+        
+        uint256[] memory amounts = abi.decode(data, (uint256[]));
+        uint256 expectedOut = amounts[amounts.length - 1];
+        
+        // Aplicar tolerancia de slippage
+        return (expectedOut * (10000 - slippageTolerance)) / 10000;
+    }
+    
+    /// @notice Permite recibir ETH
+    receive() external payable {}
 }
