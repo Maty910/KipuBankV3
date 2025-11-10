@@ -1,5 +1,7 @@
 # ENTREGA PROYECTO FINAL - KipuBankV3
 
+Mensaje para el profesor Jimy: Estoy teniendo un problema que no me deja realizar la transacción por falta de gas. Pero en mi cuenta de Metamask si tengo fondos SepoliaEth, pero al ver al solicitar el balance me devuelve 0. No sé si será un problema con la Private Key, porque la copio directamente desde Metamask a mi archivo .env . O si será un problema de mi código. Igualmente, seguiré intentando solucionarlo durante la semana. Espero se me tenga en cuenta y se me de de baja del curso ya que es un curso que me está gustando mucho y lo veo muy útil. Desde ya muchas gracias!
+
 Repositorio: https://github.com/Maty910/KipuBankV3
 
 ## Descripción general
