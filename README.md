@@ -1,66 +1,35 @@
-## Foundry
+ENTREGA PROYECTO FINAL - KipuBankV3
 
-**Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
+Repositorio: https://github.com/Maty910/KipuBankV3
 
-Foundry consists of:
+Contratos implementados:
+- src/KipuBankV3.sol (Integración Uniswap V2)
+- src/KipuBankV2Corrected.sol (Correcciones del profesor aplicadas)
 
-- **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
-- **Cast**: Swiss army knife for interacting with EVM smart contracts, sending transactions and getting chain data.
-- **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
-- **Chisel**: Fast, utilitarian, and verbose solidity REPL.
+Tests:
+- test/KipuBankV3.t.sol
 
-## Documentation
+Script de deployment:
+- script/Deploy.s.sol (Listo para Sepolia)
 
-https://book.getfoundry.sh/
+Deployment:
+- Simulación exitosa en dirección: 0xfC680769076358E7151d8152ccC5983E1aCc2c14
+- Deployment real pendiente: esperando fondos de faucet de Sepolia
+- Comando de deployment: forge script script/Deploy.s.sol:DeployScript --rpc-url $SEPOLIA_RPC_URL --broadcast --verify
 
-## Usage
+Funcionalidades implementadas:
+✅ Depósito de ETH (convertido a USDC)
+✅ Depósito de USDC directo
+✅ Depósito de tokens ERC20 (swap automático a USDC)
+✅ Retiros en USDC
+✅ Bank Cap respetado
+✅ Slippage protection
+✅ ReentrancyGuard
+✅ Access Control (owner)
 
-### Build
-
-```shell
-$ forge build
-```
-
-### Test
-
-```shell
-$ forge test
-```
-
-### Format
-
-```shell
-$ forge fmt
-```
-
-### Gas Snapshots
-
-```shell
-$ forge snapshot
-```
-
-### Anvil
-
-```shell
-$ anvil
-```
-
-### Deploy
-
-```shell
-$ forge script script/Counter.s.sol:CounterScript --rpc-url <your_rpc_url> --private-key <your_private_key>
-```
-
-### Cast
-
-```shell
-$ cast <subcommand>
-```
-
-### Help
-
-```shell
-$ forge --help
-$ anvil --help
-$ cast --help
-```
+Correcciones V2 aplicadas:
+✅ withdrawLimit immutable
+✅ bankCap considera USD con oracle
+✅ Funciones private implementadas
+✅ depositToken sigue CEI pattern
+✅ ReentrancyGuard presente
