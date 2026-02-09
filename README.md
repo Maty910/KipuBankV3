@@ -2,9 +2,6 @@
 
 Aplicación DeFi avanzada que permite a los usuarios depositar cualquier token soportado por Uniswap V2, realizando swaps automáticos a USDC y gestionando balances con límites de capacidad.
 
-Mensaje para Jimy: Ya puse solucionar el error. Lo que sucedía era que en mi archivo .env el link que tenía era de la mainnet y no de la red de sepolia. Cambié eso y se solucionó.
-Adjunto links solicitados. Muchas gracias por todo!
-
 - **Repositorio**: https://github.com/Maty910/KipuBankV3
 - **Contrato Verificado**: https://sepolia.etherscan.io/address/0xb8634997588fb56c0178a07fc358cc40e5cd5086
 
